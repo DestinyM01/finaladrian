@@ -1,0 +1,52 @@
+version: "3.9"
+services:
+  db:
+    image: mysql:8.0
+    container_name: cmms-mysql-dev
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASS:-mysql}
+      MYSQL_DATABASE: ${DB_NAME:-cmms}
+    ports:
+      - "3306:3306"
+    volumes:
+      - cmms_db_dev:/var/lib/mysql
+      - ./db_init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  app:
+    image: node:18-alpine
+    container_name: cmms-app-dev
+    working_dir: /app
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_USER: ${DB_USER:-root}
+      DB_PASS: ${DB_PASS:-mysql}
+      DB_NAME: ${DB_NAME:-cmms}
+      SESSION_SECRET: ${SESSION_SECRET:-change-me}
+    volumes:
+      - ./:/app
+      - /app/node_modules
+      - ./util/db.docker.js:/app/util/db.js:ro
+    ports:
+      - "3000:3000"
+    command: sh -lc "npm install && npx nodemon server.js"
+    restart: unless-stopped
+
+  adminer:
+    image: adminer:4
+    container_name: cmms-adminer-dev
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+
+volumes:
+  cmms_db_dev:
