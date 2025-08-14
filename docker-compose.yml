@@ -1,4 +1,5 @@
 version: "3.9"
+
 services:
   db:
     image: mysql:8.0
@@ -25,14 +26,25 @@ services:
       db:
         condition: service_healthy
     environment:
+      # ⬇️ asegura que Express escuche hacia fuera
+      HOST: 0.0.0.0
+      PORT: 3000
+
+      # DB por variables de entorno (util/db.docker.js)
       DB_HOST: db
       DB_USER: ${DB_USER:-root}
       DB_PASS: ${DB_PASS:-mysql}
       DB_NAME: ${DB_NAME:-cmms}
+
+      # Opcional: desactiva sync para evitar FK duplicadas si cargas dump SQL
+      DB_SYNC: "0"
+
+      # Si usas sesiones
       SESSION_SECRET: ${SESSION_SECRET:-change-me}
     volumes:
       - ./:/app
       - /app/node_modules
+      # ⬇️ override para que dentro del contenedor use host=db
       - ./util/db.docker.js:/app/util/db.js:ro
     ports:
       - "3000:3000"

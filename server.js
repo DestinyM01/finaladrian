@@ -1,113 +1,117 @@
+
+// server.js — CMMS (Express + Sequelize + Handlebars) listo para Docker (DEV)
+
+const path = require('path');
+const fs = require('fs');
 const express = require('express');
-const path = require('path')
-const exphbs=require('express-handlebars');
-const bodyParser=require('body-parser');
-const multer =require('multer');
-const DirName=require('./util/path');
-const sequelize=require('./util/db')
-const session=require('express-session');
-const clinical_engineer=require('./models/clinical_engineer');
-const spare_parts=require('./models/spare_part');
-const department=require('./models/department');
-const agent_supplier=require('./models/agent_supplier');
-const equipment=require('./models/equipment');
-const work_order=require('./models/work_order');
-const break_down=require('./models/break_down');
-const dialy_inspection=require('./models/dialy_inspection');
-const ppm_questions=require('./models/ppm_questions')
-const ppm=require('./models/ppm')
-const maintenance=require('./models/maintenance');
-const homeController=require('./routes/main');
-const addController=require('./routes/add');
-const deleteController=require('./routes/delete')
-const editController=require('./routes/edit')
-const reportController=require('./routes/report')
+const session = require('express-session');
+const exphbs = require('express-handlebars');
 
-
-
+// Sequelize: ./util/db.js (en Docker se overridea por util/db.docker.js)
+const sequelize = require('./util/db');
 
 const app = express();
-app.use(bodyParser.urlencoded({extended:false}))
-app.use(session({secret:'anysecret',resave:false,saveUninitialized:false}));
-const filestorage =multer.diskStorage ({
-  destination:(req,file,cb) => {
-    cb(null,'public/images');
+
+/* ===== Middlewares ===== */
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
+
+// Sesiones: MemoryStore (DEV)
+const sess = {
+  secret: process.env.SESSION_SECRET || 'change-me',
+  resave: false,
+  saveUninitialized: false,
+  proxy: true,
+  cookie: {
+    httpOnly: true,
+    sameSite: 'lax',
+    maxAge: 1000 * 60 * 60 * 8,
   },
-  filename:(req,file,cb) => {
-    cb(null,'image'+'_'+file.originalname);
-  }
-})
-const filefilter = ( req ,file,cb) => {
-if(file.mimetype === 'image/png' || file.mimetype === 'image/jpg' || file.mimetype === 'image/jpeg'  )
-{
-  cb(null,true);
-} else{
- cb(null,false);
-}
-}
+};
+app.use(session(sess));
 
-app.use(multer({storage:filestorage,fileFilter:filefilter}).single('image'));
+/* ===== Handlebars (compat v3/v4 y v6+) ===== */
+const viewsPath   = path.join(__dirname, 'views');
+const layoutsDir  = path.join(viewsPath, 'layouts');
+const partialsDir = path.join(viewsPath, 'partials');
 
+const hbsOptions = {
+  defaultLayout: 'main',
+  layoutsDir,
+  partialsDir,
+  helpers: {
+    // helpers opcionales
+  },
+};
 
-app.use(express.static(DirName+'/public/'));
-app.engine('handlebars', exphbs({layoutsDir:'views/layouts/',defaultLayout:'main-layout',partialsDir:'views/includes/'}));
+const engineFn = (typeof exphbs.engine === 'function')
+  ? exphbs.engine(hbsOptions)  // v6+
+  : exphbs(hbsOptions);        // v3/v4
+
+app.engine('handlebars', engineFn);
 app.set('view engine', 'handlebars');
-app.set('views','views');
+app.set('views', viewsPath);
 
+/* ===== Estáticos ===== */
+app.use(express.static(path.join(__dirname, 'public')));
 
+/* ===== Modelos ===== */
+const modelsDir = path.join(__dirname, 'models');
+if (fs.existsSync(modelsDir)) {
+  fs.readdirSync(modelsDir)
+    .filter((f) => f.endsWith('.js') && f !== 'index.js')
+    .forEach((f) => {
+      try { require(path.join(modelsDir, f)); }
+      catch (e) { console.error('[models] error', f, e.message); }
+    });
+}
 
-// app.use(multer({dest:'images/'}).single('image'))
-app.use(reportController);
-app.use(editController);
-app.use(deleteController);
-app.use(addController);
-app.use(homeController);
-app.use((req,res)=>{
-  res.render('error',{layout:false,href:'/',pageTitle:'404 Error',message:'404 Sorry !!! Could Not Get This Page'})
-})
+/* ===== Rutas ===== */
+app.get('/health', (req, res) => res.status(200).json({ ok: true }));
 
+try {
+  const mainRouter = require('./routes');
+  app.use('/', mainRouter);
+} catch {
+  const routesDir = path.join(__dirname, 'routes');
+  if (fs.existsSync(routesDir)) {
+    fs.readdirSync(routesDir)
+      .filter((f) => f.endsWith('.js'))
+      .forEach((f) => {
+        try {
+          const r = require(path.join(routesDir, f));
+          if (typeof r === 'function') app.use('/', r);
+        } catch (e) { console.error('[routes] error', f, e.message); }
+      });
+  }
+}
 
-ppm_questions.belongsTo(equipment,{foreignKey:'EquipmentCode'})
-equipment.hasOne(ppm_questions,{foreignKey:'EquipmentCode'})
-clinical_engineer.belongsTo(department);
-department.hasMany(clinical_engineer);
-work_order.belongsTo(clinical_engineer);
-clinical_engineer.hasMany(work_order);
-spare_parts.belongsTo(agent_supplier);
-agent_supplier.hasMany(spare_parts);
-equipment.belongsTo(agent_supplier);
-agent_supplier.hasMany(equipment);
-equipment.belongsTo(department);
-department.hasMany(equipment);
-work_order.belongsTo(equipment);
-equipment.hasMany(work_order);
-break_down.belongsTo(equipment);
-equipment.hasMany(break_down);
-maintenance.belongsTo(break_down);
-break_down.hasMany(maintenance);
-dialy_inspection.belongsTo(equipment);
-equipment.hasMany(dialy_inspection);
-dialy_inspection.belongsTo(clinical_engineer);
-clinical_engineer.hasMany(dialy_inspection)
-ppm.belongsTo(equipment);
-equipment.hasMany(ppm);
-ppm.belongsTo(clinical_engineer);
-clinical_engineer.hasMany(ppm)
-maintenance.belongsTo(clinical_engineer)
-clinical_engineer.hasMany(maintenance)
-spare_parts.belongsTo(equipment)
-equipment.hasMany(spare_parts)
+/* ===== Control de sync (evita choque con dump SQL) =====
+   DB_SYNC="1" => sequelize.sync({ alter:true })
+   Default "0" => NO sincroniza (usa el dump importado por MySQL)
+*/
+const SYNC = process.env.DB_SYNC || '0';
+async function prepareDb() {
+  if (SYNC === '1') {
+    try {
+      await sequelize.sync({ alter: true });
+      console.log('[sequelize] sync OK (alter)');
+    } catch (err) {
+      console.error('[sequelize] sync error:', err);
+    }
+  } else {
+    console.log('[sequelize] skipping sync; assuming schema from SQL dump');
+  }
+}
 
-// synchronizing with database 
-sequelize.sync()
-//sequelize.sync({force:true})
-.then(res => {
-    app.listen(5000,() => {
-        console.log('Running')
-       })
-      
-    })
-    .catch(err => {
-      console.log("err:" ,err);
-    })
+/* ===== Listen (clave en Docker) ===== */
+const PORT = process.env.PORT || 3000;
+const HOST = process.env.HOST || '0.0.0.0';
 
+prepareDb().then(() => {
+  app.listen(PORT, HOST, () => {
+    console.log(`Server running on http://${HOST}:${PORT}`);
+  });
+});
+
+module.exports = app;
