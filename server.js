@@ -36,7 +36,7 @@ const layoutsDir  = path.join(viewsPath, 'layouts');
 const partialsDir = path.join(viewsPath, 'partials');
 
 const hbsOptions = {
-  defaultLayout: 'main',
+  defaultLayout: 'main-layout',
   layoutsDir,
   partialsDir,
   helpers: {
